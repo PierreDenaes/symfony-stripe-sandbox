@@ -1,0 +1,125 @@
+{# templates/basket/product_list.html.twig #}
+{% extends 'base.html.twig' %}
+
+{% block title %}Products{% endblock %}
+
+{% block body %}
+<h1>Products</h1>
+
+{% for message in app.flashes('error') %}
+    <div class="flash-error">{{ message }}</div>
+{% endfor %}
+{% for message in app.flashes('success') %}
+    <div class="flash-success">{{ message }}</div>
+{% endfor %}
+
+<div>
+    {% for product in products %}
+        <div>
+            <input type="checkbox" id="product-{{ product.id }}" name="products[]" value="{{ product.id }}">
+            <label for="product-{{ product.id }}">{{ product.nom }} - ${{ product.prix }}</label>
+            <input type="number" id="quantity-{{ product.id }}" name="quantity-{{ product.id }}" value="1" min="1">
+            <input type="hidden" id="hidden-quantity-{{ product.id }}" name="hidden-quantity-{{ product.id }}" value="1">
+        </div>
+    {% endfor %}
+</div>
+<button id="view-cart" type="button">View Cart</button>
+<button id="create-basket" type="button">Create Basket</button>
+
+<!-- Modale pour afficher le panier -->
+<div id="cart-modal" style="display:none;">
+    <div>
+        <h2>Your Cart</h2>
+        <div id="cart-contents"></div>
+        <button id="close-cart" type="button">Close</button>
+    </div>
+</div>
+
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+    const cart = {};
+
+    document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        checkbox.addEventListener('change', event => {
+            const productId = event.target.value;
+            const quantityInput = document.getElementById(`quantity-${productId}`);
+            const quantity = parseInt(quantityInput.value, 10);
+            const hiddenQuantityInput = document.getElementById(`hidden-quantity-${productId}`);
+            if (event.target.checked) {
+                cart[productId] = quantity;
+                hiddenQuantityInput.value = quantity;
+            } else {
+                delete cart[productId];
+                hiddenQuantityInput.value = 0;
+            }
+            updateCartContents();
+        });
+    });
+
+    document.querySelectorAll('input[type="number"]').forEach(input => {
+        input.addEventListener('change', event => {
+            const productId = event.target.id.split('-')[1];
+            const quantity = parseInt(event.target.value, 10);
+            const hiddenQuantityInput = document.getElementById(`hidden-quantity-${productId}`);
+            if (cart[productId]) {
+                cart[productId] = quantity;
+                hiddenQuantityInput.value = quantity;
+            }
+            updateCartContents();
+        });
+    });
+
+    function updateCartContents() {
+        const cartContents = document.getElementById('cart-contents');
+        cartContents.innerHTML = '';
+        for (const productId in cart) {
+            const productElement = document.createElement('div');
+            productElement.innerText = `Product ID: ${productId}, Quantity: ${cart[productId]}`;
+            cartContents.appendChild(productElement);
+        }
+    }
+
+    document.getElementById('view-cart').addEventListener('click', () => {
+        document.getElementById('cart-modal').style.display = 'block';
+    });
+
+    document.getElementById('close-cart').addEventListener('click', () => {
+        document.getElementById('cart-modal').style.display = 'none';
+    });
+
+    document.getElementById('create-basket').addEventListener('click', () => {
+        const form = new FormData();
+        for (const productId in cart) {
+            form.append('products[]', productId);
+            form.append(`quantity-${productId}`, cart[productId]);
+        }
+
+        fetch('{{ path('create_basket') }}', {
+            method: 'POST',
+            body: form,
+        }).then(response => {
+            if (response.ok) {
+                return response.json();
+            } else {
+                throw new Error('Failed to create basket.');
+            }
+        }).then(data => {
+            return fetch(`/create-checkout-session/${data.id}`, {
+                method: 'GET',
+            });
+        }).then(response => {
+            if (response.ok) {
+                return response.json();
+            } else {
+                throw new Error('Failed to create checkout session.');
+            }
+        }).then(data => {
+            const stripe = Stripe('pk_test_51PNxdI2KzfchddbZVdS365NZwFLFYZSvHgwicMD0bFrw5zwlCT2w5eGMusV9MZCn8vyd4Yf3CeupElRl4hC9AWOl00PvJNIKxE'); // Utilise la clé publique Stripe configurée dans tes variables d'environnement
+            return stripe.redirectToCheckout({ sessionId: data.id });
+        }).catch(error => {
+            console.error('Error:', error);
+            alert('Failed to create basket or checkout session.');
+        });
+    });
+</script>
+{% endblock %}
